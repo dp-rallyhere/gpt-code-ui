@@ -32,7 +32,8 @@ logger = config.get_logger()
 kernel_manager_process = None
 
 # Use efficient Python queues to store messages
-result_queue = Queue()
+result_queues = {"all": Queue()}
+# result_queue = Queue()
 send_queue = Queue()
 
 messaging = None
@@ -46,6 +47,7 @@ cli.show_server_banner = lambda *x: None
 
 app = Flask(__name__)
 CORS(app)
+
 
 def start_kernel_manager():
     global kernel_manager_process
@@ -62,8 +64,10 @@ def start_kernel_manager():
     with open(os.path.join(config.KERNEL_PID_DIR, "%d.pid" % kernel_manager_process.pid), "w") as p:
         p.write("kernel_manager")
 
+
 def cleanup_kernel_program():
     kernel_manager.cleanup_spawned_processes()
+
 
 async def start_snakemq():
     global messaging
@@ -72,22 +76,28 @@ async def start_snakemq():
 
     def on_recv(conn, ident, message):
         message = json.loads(message.data.decode("utf-8"))
+        source = message["source"] if "source" in message else None
+        queue_key = "all" if source is None else source
+
+        if queue_key not in result_queues.keys():
+            result_queues[queue_key] = Queue()
 
         if message["type"] == "status":
             if message["value"] == "ready":
                 logger.debug("Kernel is ready.")
-                result_queue.put({
-                    "value":"Kernel is ready.",
-                    "type": "message"
+                result_queues[queue_key].put({
+                    "value": "Kernel is ready.",
+                    "type": "message",
+                    "source": source
                 })
 
         elif message["type"] in ["message", "message_raw", "image/png", "image/jpeg"]:
             # TODO: 1:1 kernel <> channel mapping
             logger.debug("%s of type %s" % (message["value"], message["type"]))
-
-            result_queue.put({
+            result_queues[queue_key].put({
                 "value": message["value"],
-                "type": message["type"]
+                "type": message["type"],
+                "source": source
             })
 
     messaging.on_message_recv.add(on_recv)
@@ -97,8 +107,9 @@ async def start_snakemq():
         while True:
             if send_queue.qsize() > 0:
                 message = send_queue.get()
-                utils.send_json(messaging, 
-                    {"type": "execute", "value": message["command"]}, 
+                source = message["source"] if "source" in message else None
+                utils.send_json(messaging,
+                    {"type": "execute", "value": message["command"], "source": source},
                     config.IDENT_KERNEL_MANAGER
                 )
             time.sleep(0.1)
@@ -117,18 +128,29 @@ async def start_snakemq():
 
 @app.route("/api", methods=["POST", "GET"])
 def handle_request():
-   
+    token = request.headers.get("Token", None)
+
     if request.method == "GET":
         # Handle GET requests by sending everything that's in the receive_queue
-        results = [result_queue.get() for _ in range(result_queue.qsize())]
+        queue_key = "all" if token is None else token
+
+        if queue_key not in result_queues.keys():
+            result_queues[queue_key] = Queue()
+
+        for _ in range(result_queues[queue_key].qsize()):
+            print("Here:", result_queues["all"].get())
+
+        results = [result_queues[queue_key].get() for _ in range(result_queues[queue_key].qsize())]
+
         return jsonify({"results": results})
     elif request.method == "POST":
         data = request.json
-
+        data["source"] = token
         send_queue.put(data)
 
         return jsonify({"result": "success"})
-    
+
+
 @app.route("/restart", methods=["POST"])
 def handle_restart():
 
@@ -152,9 +174,6 @@ async def main():
 def run_flask_app():
     app.run(host="0.0.0.0", port=APP_PORT)
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-    

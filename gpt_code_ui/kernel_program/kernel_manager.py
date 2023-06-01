@@ -75,12 +75,13 @@ def start_snakemq(kc):
     def on_recv(conn, ident, message):
         if ident == config.IDENT_MAIN:
             message = json.loads(message.data.decode("utf-8"))
+            source = message["source"] if "source" in message else None
 
             if message["type"] == "execute":
                 logger.debug("Executing command: %s" % message["value"])
                 kc.execute(message["value"])
                 # Try direct flush with default wait (0.2)
-                flush_kernel_msgs(kc)
+                flush_kernel_msgs(kc, message_source=source)
 
     messaging.on_message_recv.add(on_recv)
 
@@ -115,13 +116,13 @@ def start_flusher(kc):
     atexit.register(end_thread)
 
 
-def send_message(message, message_type="message"):
+def send_message(message, message_type="message", message_source=None):
     utils.send_json(
-        messaging, {"type": message_type, "value": message}, config.IDENT_MAIN
+        messaging, {"type": message_type, "value": message, "source": message_source}, config.IDENT_MAIN
     )
 
 
-def flush_kernel_msgs(kc, tries=1, timeout=0.2):
+def flush_kernel_msgs(kc, message_source=None, tries=1, timeout=0.2):
     try:
         hit_empty = 0
 
@@ -131,25 +132,35 @@ def flush_kernel_msgs(kc, tries=1, timeout=0.2):
                 if msg["msg_type"] == "execute_result":
                     if "text/plain" in msg["content"]["data"]:
                         send_message(
-                            msg["content"]["data"]["text/plain"], "message_raw"
+                            message=msg["content"]["data"]["text/plain"],
+                            message_type="message_raw",
+                            message_source=message_source
                         )
                 if msg["msg_type"] == "display_data":
                     if "image/png" in msg["content"]["data"]:
                         # Convert to Slack upload
                         send_message(
-                            msg["content"]["data"]["image/png"],
+                            message=msg["content"]["data"]["image/png"],
                             message_type="image/png",
+                            message_source=message_source
                         )
                     elif "text/plain" in msg["content"]["data"]:
-                        send_message(msg["content"]["data"]["text/plain"])
+                        send_message(
+                            message=msg["content"]["data"]["text/plain"],
+                            message_source=message_source
+                        )
 
                 elif msg["msg_type"] == "stream":
                     logger.debug("Received stream output %s" % msg["content"]["text"])
-                    send_message(msg["content"]["text"])
+                    send_message(
+                        message=msg["content"]["text"],
+                        message_source=message_source
+                    )
                 elif msg["msg_type"] == "error":
                     send_message(
-                        utils.escape_ansi("\n".join(msg["content"]["traceback"])),
-                        "message_raw",
+                        message=utils.escape_ansi("\n".join(msg["content"]["traceback"])),
+                        message_type="message_raw",
+                        message_source=message_source
                     )
             except queue.Empty:
                 hit_empty += 1

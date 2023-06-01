@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "js-cookie": "^3.0.5",
+    "react-cookie": "^4.1.1",
+    "universal-cookie": "^4.0.4",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/js-cookie": "^3.0.3",
+    "@types/universal-cookie": "^3.0.0",
+    "@types/uuid": "^9.0.1"
+  }
+}

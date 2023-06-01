@@ -125,11 +125,25 @@ def index():
 
 @app.route('/api/<path:path>', methods=["GET", "POST"])
 def proxy_kernel_manager(path):
+    token, cookies = None, request.headers.get("Cookie", None)
+
+    if cookies is not None:
+        cookies = cookies.split("; ")
+
+        for cookie in cookies:
+            token_key = "token="
+
+            if cookie.startswith(token_key):
+                token = cookie.replace("token=", "")
+                break
+
+    headers = {"token": token}
+
     if request.method == "POST":
         resp = requests.post(
-            f'http://localhost:{KERNEL_APP_PORT}/{path}', json=request.get_json())
+            f'http://localhost:{KERNEL_APP_PORT}/{path}', json=request.get_json(), headers=headers)
     else:
-        resp = requests.get(f'http://localhost:{KERNEL_APP_PORT}/{path}')
+        resp = requests.get(f'http://localhost:{KERNEL_APP_PORT}/{path}', headers=headers)
 
     excluded_headers = ['content-encoding',
                         'content-length', 'transfer-encoding', 'connection']

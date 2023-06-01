@@ -5,6 +5,9 @@ import Chat, { WaitingStates } from "./components/Chat";
 import React, { useState } from "react";
 import Config from "./config";
 import { useLocalStorage } from "usehooks-ts";
+import { useCookies } from 'react-cookie';
+import { v4 as uuidv4 } from 'uuid';
+
 
 export type MessageDict = {
   text: string;
@@ -51,11 +54,18 @@ function App() {
   );
   const chatScrollRef = React.useRef<HTMLDivElement>(null);
 
+  const [cookies, setCookie] = useCookies(['token']);
+
+  if (cookies.token == null) {
+    let expiration = new Date(new Date(new Date()).setDate((new Date().getDate() + 30)));
+    setCookie('token', uuidv4(), { path: '/', expires: expiration });
+  }
+
   const submitCode = async (code: string) => {
     fetch(`${Config.API_ADDRESS}/api`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({ command: code }),
     })
@@ -218,7 +228,7 @@ function App() {
     return () => {
       document.removeEventListener('click', clickHandler);
     };
-  }, []); 
+  }, []);
 
   return (
     <>

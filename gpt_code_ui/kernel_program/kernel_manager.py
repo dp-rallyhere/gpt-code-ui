@@ -22,6 +22,7 @@ import gpt_code_ui.kernel_program.config as config
 # Set up globals
 messaging = None
 logger = config.get_logger()
+pits_map = {}  # pid to source map
 
 
 class FlushingThread(threading.Thread):
@@ -79,9 +80,13 @@ def start_snakemq(kc):
 
             if message["type"] == "execute":
                 logger.debug("Executing command: %s" % message["value"])
-                kc.execute(message["value"])
+                message_id = kc.execute(message["value"])
+
+                if source is not None:
+                    pits_map[message_id] = source
+
                 # Try direct flush with default wait (0.2)
-                flush_kernel_msgs(kc, message_source=source)
+                flush_kernel_msgs(kc)
 
     messaging.on_message_recv.add(on_recv)
 
@@ -122,13 +127,19 @@ def send_message(message, message_type="message", message_source=None):
     )
 
 
-def flush_kernel_msgs(kc, message_source=None, tries=1, timeout=0.2):
+def flush_kernel_msgs(kc, tries=1, timeout=0.2):
     try:
         hit_empty = 0
 
         while True:
             try:
+                message_source = None
                 msg = kc.get_iopub_msg(timeout=timeout)
+                parent_id = msg["parent_header"]["msg_id"]
+
+                if parent_id in pits_map.keys():
+                    message_source = pits_map[parent_id]
+
                 if msg["msg_type"] == "execute_result":
                     if "text/plain" in msg["content"]["data"]:
                         send_message(

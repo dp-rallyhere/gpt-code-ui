@@ -137,9 +137,6 @@ def handle_request():
         if queue_key not in result_queues.keys():
             result_queues[queue_key] = Queue()
 
-        for _ in range(result_queues[queue_key].qsize()):
-            print("Here:", result_queues["all"].get())
-
         results = [result_queues[queue_key].get() for _ in range(result_queues[queue_key].qsize())]
 
         return jsonify({"results": results})
